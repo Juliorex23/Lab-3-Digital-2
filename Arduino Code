@@ -1,0 +1,149 @@
+//Universidad del Valle de Guatemala 
+//Electrónia Digital 2 
+//José García 22985, Rodrigo Cabrera 22778, Julio Pérez 221023
+//Laboratorio 3
+
+
+//**********************************************************************
+//Librerías utilizadas en el programa 
+#include <Arduino.h>
+#include "driver/timer.h" 
+//Inicialización del uso de interrupciones en el código 
+
+portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+
+//*********************************************************************
+//Definición de pines 
+
+int touchThreshold = 40; 
+uint8_t count = 1;
+const int Alarma = 13; 
+const int sensorPin = 33;
+const int LED1 = 15; 
+const int LED2 = 2;
+const int LED3 = 4;
+const int LED4 = 5;
+#define Led_1 18
+#define Led_2 19
+#define Led_3 21
+#define Led_4 23
+
+//********************************************************************
+//Definición de estreuctura utilizada para los botones. 
+struct Button{
+  const uint8_t PIN;
+  volatile uint32_t numberKeyPresses;
+  bool pressed;
+};
+//Definición de los botones utilizando la estructura anterior. 
+Button Suma ={12, 0, false};
+Button Resta ={27, 0, false};
+//************************************************************* 
+//Estructura para el sensor capacitor
+struct CapacitiveSensor{
+  const uint8_t PIN;
+  int touchValue;
+  bool pressed;
+};
+//Definición del sensor capacitivo utilizando la estructura anterior
+CapacitiveSensor Reset = {sensorPin, 0, false};
+volatile int tempo = 0; 
+hw_timer_t *timer = NULL; 
+
+//********************************************************************
+//Definición de funciones auxiliares
+void IRAM_ATTR onTimer(void);
+void IRAM_ATTR BTN_SUMA_ISR(void);
+void IRAM_ATTR BTN_RESTA_ISR(void);
+
+//Función setup 
+void setup() {
+  //Definición del modo de los pines (como salida para los LEDs)
+  pinMode(LED1, OUTPUT);
+  pinMode(LED2, OUTPUT);
+  pinMode(LED3, OUTPUT);
+  pinMode(LED4, OUTPUT);
+  pinMode(Led_1, OUTPUT);
+  pinMode(Led_2, OUTPUT);
+  pinMode(Led_3, OUTPUT);
+  pinMode(Led_4, OUTPUT);
+  pinMode(Alarma, OUTPUT);
+//Inicialización del monitor serial para mostrar las interrupciones 
+  Serial.begin(115200);
+  pinMode(Suma.PIN,INPUT_PULLUP);
+  attachInterrupt(Suma.PIN, BTN_SUMA_ISR, FALLING);
+
+  Serial.begin(115200);
+  pinMode(Resta.PIN,INPUT_PULLUP);
+  attachInterrupt(Resta.PIN, BTN_RESTA_ISR, FALLING);
+//Configuración del contador, inicia en 0  y valor final de 80 
+  timer = timerBegin(0, 80, true); 
+//Añade el accionamiento del interruptor para el contador 
+  timerAttachInterrupt(timer, &onTimer, true);
+//Codificación de la alarma  
+  timerAlarmWrite(timer, 250000, true); 
+  timerAlarmEnable(timer);
+}
+
+void loop() {
+//Codificación del contador de suma, para ser mostrado en las LEDs cada vez que se presione 
+  if(Suma.pressed){
+    Serial.printf("Button add has been pressed %u times\n",Suma.numberKeyPresses);
+    count = (count + 1) % 16; 
+    digitalWrite(Led_1, count & 0x01);
+    digitalWrite(Led_2, (count >> 1) & 0x01);
+    digitalWrite(Led_3, (count >> 2) & 0x01);
+    digitalWrite(Led_4, (count >> 3) & 0x01);
+    Suma.pressed=false;
+  }
+if(Resta.pressed){
+  //Codificación del contador de resta, para ser mostrado en las LEDs cada vez que se presione 
+    Serial.printf("Button rest has been pressed %u times\n",Resta.numberKeyPresses);
+    count = (count - 1) % 16; 
+    digitalWrite(Led_1, count & 0x01);
+    digitalWrite(Led_2, (count >> 1) & 0x01);
+    digitalWrite(Led_3, (count >> 2) & 0x01);
+    digitalWrite(Led_4, (count >> 3) & 0x01);
+    Resta.pressed=false;
+  }
+  //Activación de la función del botón de reset 
+  Reset.touchValue = touchRead(Reset.PIN);
+  if (Reset.touchValue < touchThreshold) {
+    Serial.printf("Capacitive sensor touched, value: %d\n", Reset.touchValue);
+    timerAlarmDisable(timer); 
+    tempo = 0;
+    timerAlarmEnable(timer); 
+  }
+}
+//***********************************************************
+//Funciones auxiliares para el botón de suma, resta y timer 
+void IRAM_ATTR BTN_SUMA_ISR(){
+  portENTER_CRITICAL_ISR(&mux);
+    Suma.numberKeyPresses++;
+    Suma.pressed=true;
+  portEXIT_CRITICAL_ISR(&mux);
+}
+
+void IRAM_ATTR BTN_RESTA_ISR(){
+  portENTER_CRITICAL_ISR(&mux);
+    Resta.numberKeyPresses++;
+    Resta.pressed=true;
+  portEXIT_CRITICAL_ISR(&mux);
+}
+
+void IRAM_ATTR onTimer() {
+  tempo = (tempo + 1) % 16;
+
+  digitalWrite(LED1, bitRead(tempo, 0));
+  digitalWrite(LED2, bitRead(tempo, 1));
+  digitalWrite(LED3, bitRead(tempo, 2));
+if (tempo == count) {
+    digitalWrite(Alarma, HIGH); 
+    timerAlarmDisable(timer); 
+    tempo = 0; 
+    timerAlarmEnable(timer);
+  } else {
+    digitalWrite(Alarma, LOW); 
+  }
+}
+
